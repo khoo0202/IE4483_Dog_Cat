@@ -1,0 +1,54 @@
+project:
+  seed: 42
+  output_root: "/home/users/ntu/khoo0202/project/IE4483_Dog_Cat/experiments"
+  run_name: "convnext_baseline"
+  save_every_n_epochs: 1
+  num_workers: 8
+  pin_memory: true
+  amp: true
+
+data:
+  dataset_name: "PetImages"
+  root_dir: "/home/users/ntu/khoo0202/project/IE4483_Dog_Cat/data_for_dog_cat/Dataset/PetImages_split"
+  img_size: 224
+  batch_size: 64
+  val_split: 0.15
+  test_split: 0.02
+  shuffle_seed: 42
+
+model:
+  name: "convnext_tiny"
+  pretrained: true
+  num_classes: 2
+  drop_path_rate: 0.2
+  layer_scale_init_value: 1e-6
+
+optim:
+  optimizer: "adamw"
+  lr: 0.0005
+  weight_decay: 0.05
+  betas:
+    - 0.9
+    - 0.999
+
+sched:
+  name: "cosine"
+  warmup_epochs: 5
+  max_epochs: 35
+  min_lr: 0.000001
+  patience: 7
+  factor: 0.5
+
+train:
+  early_stopping_patience: 5
+  grad_clip_norm: 1.0
+  mixup_alpha: 0.0
+  cutmix_alpha: 0.0
+
+ddp:
+  enabled: true
+  backend: "nccl"
+
+logging:
+  tensorboard: true
+  log_interval: 50

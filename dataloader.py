@@ -66,8 +66,12 @@ def _maybe_build_sampler(dataset: Dataset, shuffle: bool, ddp_enabled: bool):
     return DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
 
 
-def _has_presplit(root_dir: str) -> bool:
-    return all(os.path.isdir(os.path.join(root_dir, split)) for split in ("train", "val", "test"))
+def _get_presplit_dirs(root_dir: str) -> Dict[str, str]:
+    """Return directories for existing splits when data is already partitioned."""
+    splits = {split: os.path.join(root_dir, split) for split in ("train", "val", "test")}
+    if not all(os.path.isdir(splits[split]) for split in ("train", "val")):
+        return {}
+    return {split: path for split, path in splits.items() if os.path.isdir(path)}
 
 
 def create_dataloaders(cfg) -> Tuple[Dict[str, DataLoader], Dict[str, Optional[DistributedSampler]]]:
@@ -78,10 +82,17 @@ def create_dataloaders(cfg) -> Tuple[Dict[str, DataLoader], Dict[str, Optional[D
     pin_memory = cfg["project"]["pin_memory"]
     ddp_enabled = cfg["ddp"].get("enabled", False) and int(os.environ.get("WORLD_SIZE", "1")) > 1
 
-    if _has_presplit(root_dir):
-        train_dataset = ImageFolder(os.path.join(root_dir, "train"), transform=train_tfms)
-        val_dataset = ImageFolder(os.path.join(root_dir, "val"), transform=eval_tfms)
-        test_dataset = ImageFolder(os.path.join(root_dir, "test"), transform=eval_tfms)
+    split_dirs = _get_presplit_dirs(root_dir)
+
+    if split_dirs:
+        train_dataset = ImageFolder(split_dirs["train"], transform=train_tfms)
+        val_dataset = ImageFolder(split_dirs["val"], transform=eval_tfms)
+        test_dir = split_dirs.get("test")
+        if test_dir:
+            test_dataset = ImageFolder(test_dir, transform=eval_tfms)
+        else:
+            # No dedicated test split provided; reuse validation set for evaluation.
+            test_dataset = ImageFolder(split_dirs["val"], transform=eval_tfms)
     else:
         base_dataset = ImageFolder(root_dir, transform=None)
         train_idx, val_idx, test_idx = _split_indices(

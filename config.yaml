@@ -9,7 +9,7 @@ project:
 
 data:
   dataset_name: "PetImages"
-  root_dir: "/home/users/ntu/khoo0202/project/IE4483_Dog_Cat/data_for_dog_cat/Dataset/PetImages_split"
+  root_dir: "/home/users/ntu/khoo0202/project/IE4483_Dog_Cat/data_for_dog_cat/datasets"
   img_size: 224
   batch_size: 64
   val_split: 0.15

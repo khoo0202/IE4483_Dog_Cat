@@ -1,4 +1,4 @@
-"""DataLoader factory for the ConvNeXt dog-vs-cat project."""
+"""DataLoader factory for ConvNeXt experiments (dog-vs-cat + CIFAR)."""
 from __future__ import annotations
 
 import os
@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
-from torchvision.datasets import ImageFolder
+from torchvision.datasets import CIFAR10, ImageFolder
 
 from augmentation import build_transforms
 
@@ -74,6 +74,14 @@ def _get_presplit_dirs(root_dir: str) -> Dict[str, str]:
     return {split: path for split, path in splits.items() if os.path.isdir(path)}
 
 
+def _build_cifar10_datasets(root_dir: str, train_tfms, eval_tfms):
+    """Return CIFAR-10 datasets, reusing the official test split for validation/testing."""
+    train = CIFAR10(root=root_dir, train=True, download=True, transform=train_tfms)
+    val = CIFAR10(root=root_dir, train=False, download=True, transform=eval_tfms)
+    test = CIFAR10(root=root_dir, train=False, download=True, transform=eval_tfms)
+    return train, val, test
+
+
 def create_dataloaders(cfg) -> Tuple[Dict[str, DataLoader], Dict[str, Optional[DistributedSampler]]]:
     train_tfms, eval_tfms = build_transforms(cfg)
     root_dir = cfg["data"]["root_dir"]
@@ -81,26 +89,29 @@ def create_dataloaders(cfg) -> Tuple[Dict[str, DataLoader], Dict[str, Optional[D
     num_workers = cfg["project"]["num_workers"]
     pin_memory = cfg["project"]["pin_memory"]
     ddp_enabled = cfg["ddp"].get("enabled", False) and int(os.environ.get("WORLD_SIZE", "1")) > 1
+    dataset_name = cfg["data"].get("dataset_name", "").lower()
 
-    split_dirs = _get_presplit_dirs(root_dir)
-
-    if split_dirs:
-        train_dataset = ImageFolder(split_dirs["train"], transform=train_tfms)
-        val_dataset = ImageFolder(split_dirs["val"], transform=eval_tfms)
-        test_dir = split_dirs.get("test")
-        if test_dir:
-            test_dataset = ImageFolder(test_dir, transform=eval_tfms)
-        else:
-            # No dedicated test split provided; reuse validation set for evaluation.
-            test_dataset = ImageFolder(split_dirs["val"], transform=eval_tfms)
+    if dataset_name == "cifar10":
+        train_dataset, val_dataset, test_dataset = _build_cifar10_datasets(root_dir, train_tfms, eval_tfms)
     else:
-        base_dataset = ImageFolder(root_dir, transform=None)
-        train_idx, val_idx, test_idx = _split_indices(
-            len(base_dataset), cfg["data"]["val_split"], cfg["data"]["test_split"], cfg["data"]["shuffle_seed"]
-        )
-        train_dataset = TransformSubset(base_dataset, train_idx, train_tfms)
-        val_dataset = TransformSubset(base_dataset, val_idx, eval_tfms)
-        test_dataset = TransformSubset(base_dataset, test_idx, eval_tfms)
+        split_dirs = _get_presplit_dirs(root_dir)
+        if split_dirs:
+            train_dataset = ImageFolder(split_dirs["train"], transform=train_tfms)
+            val_dataset = ImageFolder(split_dirs["val"], transform=eval_tfms)
+            test_dir = split_dirs.get("test")
+            if test_dir:
+                test_dataset = ImageFolder(test_dir, transform=eval_tfms)
+            else:
+                # No dedicated test split provided; reuse validation set for evaluation.
+                test_dataset = ImageFolder(split_dirs["val"], transform=eval_tfms)
+        else:
+            base_dataset = ImageFolder(root_dir, transform=None)
+            train_idx, val_idx, test_idx = _split_indices(
+                len(base_dataset), cfg["data"]["val_split"], cfg["data"]["test_split"], cfg["data"]["shuffle_seed"]
+            )
+            train_dataset = TransformSubset(base_dataset, train_idx, train_tfms)
+            val_dataset = TransformSubset(base_dataset, val_idx, eval_tfms)
+            test_dataset = TransformSubset(base_dataset, test_idx, eval_tfms)
 
     samplers: Dict[str, Optional[DistributedSampler]] = {
         "train": _maybe_build_sampler(train_dataset, True, ddp_enabled),
